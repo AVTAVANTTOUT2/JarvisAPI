@@ -14,6 +14,7 @@ import pytest
 from actions import _action_terminal
 from integrations.shell_safety import (
     ShellPlanError,
+    _contains_sensitive_path,
     _safe_environment,
     analyze_command,
     execute_shell_plan,
@@ -318,8 +319,14 @@ async def test_workspace_write_is_confined_to_plan_directory():
         "cat --file=.ssh/id_rsa",
         "cat .env",
         "cat .env.local",
+        "cat .env-staging",
         "cat secret.pem",
+        "cat cert.p12",
+        "cat store.pfx",
+        "cat app.mobileprovision",
         "cat credentials.json",
+        "cat secrets.prod.yaml",
+        "cat signing.properties",
         "git show HEAD:.env",
         "pwd; whoami",
         "ls | head",
@@ -333,6 +340,32 @@ def test_dangerous_or_out_of_scope_commands_are_not_in_allowlist(
     workspace.mkdir()
     with pytest.raises(ShellPlanError):
         analyze_command(command, workspace=workspace)
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        ".env-prod",
+        "secrets.prod",
+        "credentials.yaml",
+        "path/to/keychain",
+        "nested/.aws/config",
+        "cert.p12",
+        "legacy.pfx",
+        "profile.mobileprovision",
+        "id_rsa.key",
+    ],
+)
+def test_contains_sensitive_path_blocks_secret_suffixes_and_prefixes(token: str) -> None:
+    assert _contains_sensitive_path(token) is True
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["readme.md", "src/main.py", "notes.txt", "package.json"],
+)
+def test_contains_sensitive_path_allows_ordinary_workspace_files(token: str) -> None:
+    assert _contains_sensitive_path(token) is False
 
 
 @pytest.mark.parametrize(
@@ -467,3 +500,65 @@ async def test_expired_plan_cannot_execute(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(shell_safety.time, "monotonic", lambda: stored.expires_at + 1)
     with pytest.raises(ShellPlanError, match="expiré"):
         await execute_shell_plan(plan["plan_id"])
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rg --pre curl pattern .",
+        "rg --hostname-bin=/bin/sh pattern .",
+        "sort -o out.txt a.txt",
+        "sort --compress-program=gzip a.txt",
+        "diff -o out.txt a b",
+        "tail --pid=1 -f log.txt",
+        "git status --git-dir=/tmp",
+        "mkdir -m 777 out",
+        "touch -a file.txt",
+        "cp -r src dst",
+        "mv -f src dst",
+    ],
+)
+def test_forbidden_flags_on_allowlisted_tools_are_rejected(
+    command: str,
+    tmp_path: Path,
+):
+    """Allowlist ≠ carte blanche : les drapeaux d'échappement restent refusés."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(ShellPlanError):
+        analyze_command(command, workspace=workspace)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "API_KEY=sk-leak ls",
+        "TOKEN=abc pwd",
+        "password=secret pwd",
+        "SECRET=x ls",
+    ],
+)
+def test_inline_secret_assignments_are_rejected(command: str, tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(ShellPlanError, match="secret"):
+        analyze_command(command, workspace=workspace)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rg TODO --file=/etc/passwd",
+        "rg pattern path=/var/log/syslog",
+        "cat notes=~/.ssh/id_rsa",
+        "head log=../../outside.txt",
+    ],
+)
+def test_path_tokens_after_equals_cannot_escape_workspace(
+    command: str, tmp_path: Path
+) -> None:
+    """``flag=/absolu`` et ``~`` / ``..`` après ``=`` restent refusés (pas seulement le token nu)."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    with pytest.raises(ShellPlanError):
+        analyze_command(command, workspace=workspace)

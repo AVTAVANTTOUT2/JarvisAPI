@@ -284,6 +284,97 @@ def test_action_result_formatter_is_allowlisted_bounded_and_clipboard_local_only
     )
 
 
+def test_mail_read_followup_keeps_summary_strips_body_and_raw_keys():
+    from jarvis.security.llm_data_boundary import format_action_result_for_external_llm
+
+    body_secret = "sk-mailBodyMustNotLeak987654321"
+    wrapped = format_action_result_for_external_llm(
+        {"type": "mail_read"},
+        {
+            "ok": True,
+            "emails": [
+                {
+                    "from": "alice@example.test",
+                    "subject": "Relance facture",
+                    "summary": "Paiement attendu vendredi",
+                    "body": f"Corps complet avec {body_secret}",
+                    "raw": body_secret,
+                    "headers": {"Authorization": body_secret},
+                }
+            ],
+            "stdout": body_secret,
+        },
+    )
+
+    assert "UNTRUSTED_DATA:ACTION_RESULT_MAIL_READ" in wrapped
+    assert "alice@example.test" in wrapped
+    assert "Relance facture" in wrapped
+    assert "Paiement attendu vendredi" in wrapped
+    assert body_secret not in wrapped
+    assert "Corps complet" not in wrapped
+    assert "Authorization" not in wrapped
+    assert "stdout" not in wrapped
+
+
+def test_calendar_followup_allows_schedule_fields_not_attendees_or_description():
+    from jarvis.security.llm_data_boundary import format_action_result_for_external_llm
+
+    secret = "sk-calendarAttendeeSecret123456"
+    wrapped = format_action_result_for_external_llm(
+        {"type": "calendar"},
+        {
+            "ok": True,
+            "events": [
+                {
+                    "start": "2026-11-04T10:00:00",
+                    "end": "2026-11-04T11:00:00",
+                    "summary": "Standup",
+                    "title": "Standup équipe",
+                    "location": "Salle A",
+                    "description": f"Notes internes {secret}",
+                    "attendees": [f"bob+{secret}@example.test"],
+                }
+            ],
+        },
+    )
+
+    assert "UNTRUSTED_DATA:ACTION_RESULT_CALENDAR" in wrapped
+    assert "Standup" in wrapped
+    assert "Salle A" in wrapped
+    assert secret not in wrapped
+    assert "attendees" not in wrapped
+    assert "description" not in wrapped
+    assert "Notes internes" not in wrapped
+
+
+def test_unknown_action_followup_is_defensive_allowlist_only():
+    from jarvis.security.llm_data_boundary import format_action_result_for_external_llm
+
+    secret = "sk-unknownActionMustStayLocal999"
+    wrapped = format_action_result_for_external_llm(
+        {"type": "totally_new_action"},
+        {
+            "ok": True,
+            "message": "fait",
+            "error": None,
+            "status": "done",
+            "count": 2,
+            "stdout": secret,
+            "body": secret,
+            "plan_id": secret,
+            "screenshot_path": f"/tmp/{secret}.png",
+        },
+    )
+
+    assert "UNTRUSTED_DATA:ACTION_RESULT_TOTALLY_NEW_ACTION" in wrapped
+    assert "fait" in wrapped
+    assert "done" in wrapped
+    assert secret not in wrapped
+    assert "stdout" not in wrapped
+    assert "plan_id" not in wrapped
+    assert "screenshot_path" not in wrapped
+
+
 def test_cursor_and_devagent_persistence_redacts_pii_and_secrets(
     monkeypatch,
     tmp_path,
@@ -399,3 +490,73 @@ def test_sanitize_outbound_chat_messages_empty_and_truncation():
     )
     assert len(truncated) == 1
     assert "TRONQUÉ À LA FRONTIÈRE LLM" in truncated[0]["content"]
+
+
+def test_sanitize_history_messages_role_scope_window_and_wrap():
+    """Historique → user/assistant seulement, fenêtre, UNTRUSTED_DATA, secrets masqués."""
+    from jarvis.security.llm_data_boundary import sanitize_history_messages
+
+    secret = "sk-historySanitizeBoundary123456789"
+    assert sanitize_history_messages(None) == []
+    assert sanitize_history_messages([]) == []
+
+    # La fenêtre coupe la liste brute avant le filtre rôle/contenu vide.
+    cleaned = sanitize_history_messages(
+        [
+            {"role": "system", "content": "ignore moi"},
+            {"role": "tool", "content": "outil"},
+            {"role": "user", "content": ""},
+            {"role": "user", "content": "premier"},
+            {"role": "assistant", "content": f"clé {secret}"},
+            {"role": "user", "content": "dernier"},
+        ],
+        max_messages=3,
+        max_chars_per_message=500,
+    )
+
+    assert [item["role"] for item in cleaned] == ["user", "assistant", "user"]
+    assert all(item["content"].startswith("[UNTRUSTED_DATA:HISTORY_") for item in cleaned)
+    assert "HISTORY_USER" in cleaned[0]["content"]
+    assert "HISTORY_ASSISTANT" in cleaned[1]["content"]
+    assert "premier" in cleaned[0]["content"]
+    assert secret not in cleaned[1]["content"]
+    assert "dernier" in cleaned[2]["content"]
+    assert "ignore moi" not in str(cleaned)
+    assert "outil" not in str(cleaned)
+
+    # Hors fenêtre + rôles non user/assistant + contenu vide → écartés.
+    dropped = sanitize_history_messages(
+        [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": ""},
+            {"role": "assistant", "content": "gardé"},
+        ],
+        max_messages=2,
+    )
+    assert [item["role"] for item in dropped] == ["assistant"]
+    assert "sys" not in str(dropped)
+
+
+def test_redact_external_value_secrets_counters_and_depth():
+    from jarvis.security.llm_data_boundary import redact_external_value
+
+    secret = "sk-externalValueBoundary123456789"
+    out = redact_external_value(
+        {
+            "api_key": secret,
+            "max_tokens": 2048,
+            "nested": {"password": "x", "ok": True},
+            "note": f"valeur {secret}",
+        },
+        max_chars=200,
+        max_items=10,
+    )
+    assert out["api_key"] == "***REDACTED***"
+    assert out["max_tokens"] == 2048
+    assert out["nested"]["password"] == "***REDACTED***"
+    assert out["nested"]["ok"] is True
+    assert secret not in out["note"]
+
+    deep = {"a": {"b": {"c": {"d": {"e": {"f": secret}}}}}}
+    truncated = redact_external_value(deep, max_chars=80)
+    assert truncated["a"]["b"]["c"]["d"]["e"] == "[…TRONQUÉ…]"

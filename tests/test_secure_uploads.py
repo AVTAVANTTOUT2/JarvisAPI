@@ -290,3 +290,43 @@ def test_managed_deletion_refuses_paths_outside_upload_root(upload_env, tmp_path
 
     assert remove_managed_upload(outside) is False
     assert outside.exists()
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "/etc/passwd",
+        "../etc/passwd",
+        "a/../../b",
+        "",
+        ".",
+        "nested/../secret.txt",
+    ],
+)
+def test_resolve_managed_upload_rejects_traversal_and_absolute(upload_env, relative):
+    from jarvis.uploads import UploadRejected, resolve_managed_upload
+
+    with pytest.raises(UploadRejected) as caught:
+        resolve_managed_upload(relative)
+    assert caught.value.status_code == 400
+
+
+def test_resolve_managed_upload_missing_file_is_404(upload_env):
+    from jarvis.uploads import UploadRejected, resolve_managed_upload
+
+    with pytest.raises(UploadRejected) as caught:
+        resolve_managed_upload("conversations/1/missing.txt")
+    assert caught.value.status_code == 404
+
+
+def test_resolve_managed_upload_returns_existing_relative_file(upload_env):
+    from jarvis.uploads import resolve_managed_upload
+
+    _, upload_root = upload_env
+    target = upload_root / "conversations" / "7" / "doc.txt"
+    target.parent.mkdir(parents=True)
+    target.write_text("ok", encoding="utf-8")
+
+    resolved = resolve_managed_upload("conversations/7/doc.txt")
+    assert resolved == target.resolve()
+    assert resolved.read_text(encoding="utf-8") == "ok"

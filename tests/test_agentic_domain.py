@@ -30,7 +30,12 @@ from jarvis.agentic import (
     build_run_budget,
     classify_agentic_request,
     check_budget,
+    validate_run_transition,
     verify_runtime_completion,
+)
+from jarvis.agentic.models import (
+    canonical_run_request_digest,
+    normalize_agentic_client_context,
 )
 from jarvis.agentic.redaction import neutralize_event_payload
 from jarvis.agentic.verifier import (
@@ -324,6 +329,210 @@ def test_budget_guard_and_doom_loop_detection_are_deterministic():
     )
 
 
+def test_doom_loop_detector_rejects_invalid_window_or_threshold():
+    with pytest.raises(ValueError, match="invalide"):
+        DoomLoopDetector(window_size=3)
+    with pytest.raises(ValueError, match="invalide"):
+        DoomLoopDetector(repeat_limit=1)
+
+
+def test_doom_loop_same_error_across_distinct_tools():
+    """Trois échecs au même code, même avec des outils différents, sont une boucle."""
+
+    detector = DoomLoopDetector()
+    assert (
+        detector.record(tool="search", arguments={"q": "a"}, error_code="timeout")
+        is None
+    )
+    assert (
+        detector.record(tool="fetch", arguments={"url": "b"}, error_code="timeout")
+        is None
+    )
+    assert (
+        detector.record(tool="parse", arguments={"src": "c"}, error_code="timeout")
+        == "same_error"
+    )
+
+
+def test_doom_loop_no_progress_requires_full_window_without_progress():
+    detector = DoomLoopDetector(window_size=4, repeat_limit=3)
+    for index in range(3):
+        assert (
+            detector.record(
+                tool=f"tool-{index}",
+                arguments={"n": index},
+                progress=False,
+            )
+            is None
+        )
+    assert (
+        detector.record(tool="tool-3", arguments={"n": 3}, progress=False)
+        == "no_progress"
+    )
+
+
+def test_doom_loop_progress_flag_prevents_no_progress_verdict():
+    detector = DoomLoopDetector(window_size=4, repeat_limit=3)
+    assert detector.record(tool="a", arguments={"n": 1}, progress=True) is None
+    assert detector.record(tool="b", arguments={"n": 2}, progress=False) is None
+    assert detector.record(tool="c", arguments={"n": 3}, progress=False) is None
+    assert detector.record(tool="d", arguments={"n": 4}, progress=False) is None
+
+
+def test_doom_loop_alternating_pattern_ab_ab_ab():
+    """L'alternance n'est visible que si la fenêtre n'est pas déjà « no_progress »."""
+
+    detector = DoomLoopDetector()
+    sequence = (
+        ("read", {"path": "a"}, True),
+        ("write", {"path": "b"}, False),
+        ("read", {"path": "a"}, False),
+        ("write", {"path": "b"}, False),
+        ("read", {"path": "a"}, False),
+        ("write", {"path": "b"}, False),
+    )
+    for index, (tool, arguments, progress) in enumerate(sequence):
+        verdict = detector.record(
+            tool=tool, arguments=arguments, progress=progress
+        )
+        if index < 5:
+            assert verdict is None
+        else:
+            assert verdict == "alternating_pattern"
+
+
+def test_doom_loop_arguments_hash_is_stable_after_secret_redaction():
+    """Deux secrets différents ne doivent pas masquer une répétition d'action."""
+
+    detector = DoomLoopDetector()
+    assert (
+        detector.record(
+            tool="http",
+            arguments={"url": "https://api.example/x", "token": "sk-aaa111222333"},
+        )
+        is None
+    )
+    assert (
+        detector.record(
+            tool="http",
+            arguments={"url": "https://api.example/x", "token": "sk-zzz999888777"},
+        )
+        is None
+    )
+    assert (
+        detector.record(
+            tool="http",
+            arguments={"url": "https://api.example/x", "token": "sk-different-value"},
+        )
+        == "same_tool_arguments"
+    )
+
+
+def test_doom_loop_reset_clears_detection_state():
+    detector = DoomLoopDetector()
+    for _ in range(3):
+        detector.record(tool="read", arguments={"path": "a"})
+    detector.reset()
+    assert detector.record(tool="read", arguments={"path": "a"}) is None
+    assert detector.record(tool="read", arguments={"path": "a"}) is None
+    assert (
+        detector.record(tool="read", arguments={"path": "a"}) == "same_tool_arguments"
+    )
+
+
+@pytest.mark.parametrize(
+    ("usage", "expected_budget"),
+    [
+        (BudgetUsage(elapsed_s=10.0), "duration"),
+        (BudgetUsage(tool_calls=5), "tool_calls"),
+        (BudgetUsage(retries=3), "retries"),
+        (BudgetUsage(model_tokens=100), "model_tokens"),
+        (BudgetUsage(artifact_bytes=50), "artifact_bytes"),
+        (BudgetUsage(cost=1.5), "cost"),
+    ],
+)
+def test_check_budget_reports_each_exceeded_dimension(
+    usage: BudgetUsage, expected_budget: str
+) -> None:
+    """Chaque dimension du budget a un refus nommé — pas seulement steps."""
+
+    budget = RunBudget(
+        max_duration_s=5,
+        max_steps=50,
+        max_tool_calls=4,
+        max_retries=2,
+        model_token_budget=80,
+        cost_budget=1.0,
+        max_artifact_bytes=40,
+    )
+    error = check_budget(budget, usage)
+    assert error is not None
+    assert error.code.value == "budget_exceeded"
+    assert error.details["budget"] == expected_budget
+    assert error.details["consumed"] > error.details["limit"]
+
+
+def test_check_budget_ignores_cost_when_no_cost_ceiling() -> None:
+    budget = RunBudget(max_steps=10, max_tool_calls=10, cost_budget=None)
+    assert check_budget(budget, BudgetUsage(cost=999.0)) is None
+
+
+def test_validate_run_transition_allows_identity_and_rejects_closed_terminals() -> None:
+    assert validate_run_transition("completed", AgenticRunStatus.COMPLETED) == (
+        AgenticRunStatus.COMPLETED,
+        AgenticRunStatus.COMPLETED,
+    )
+    assert validate_run_transition(
+        AgenticRunStatus.CREATED, AgenticRunStatus.CLASSIFIED
+    ) == (AgenticRunStatus.CREATED, AgenticRunStatus.CLASSIFIED)
+    with pytest.raises(InvalidRunTransition, match="completed -> running"):
+        validate_run_transition(AgenticRunStatus.COMPLETED, AgenticRunStatus.RUNNING)
+    with pytest.raises(InvalidRunTransition, match="failed -> queued"):
+        validate_run_transition("failed", "queued")
+
+
+def test_normalize_agentic_client_context_rejects_controls_and_unknown_zones() -> None:
+    device, locale, timezone_name = normalize_agentic_client_context(
+        device="Mac\x00Mini",
+        locale="fr-FR\nforged",
+        timezone_name="Mars/Colony",
+    )
+    assert device is None
+    assert locale == "fr-FR"
+    assert timezone_name == "Europe/Paris"
+
+    device, locale, timezone_name = normalize_agentic_client_context(
+        device="  Mac Mini  ",
+        locale="en-US",
+        timezone_name="America/New_York",
+    )
+    assert device == "Mac Mini"
+    assert locale == "en-US"
+    assert timezone_name == "America/New_York"
+
+
+def test_canonical_run_request_digest_is_stable_under_permission_reorder() -> None:
+    """L'idempotence ne doit pas dépendre de l'ordre des permissions."""
+
+    left = replace(
+        _run(),
+        permissions=("mail:send", "workspace:write"),
+        selected_context={"query": "réserver"},
+    )
+    right = replace(
+        _run(),
+        permissions=("workspace:write", "mail:send"),
+        selected_context={"query": "réserver"},
+    )
+    digest = canonical_run_request_digest(left)
+    assert digest == canonical_run_request_digest(right)
+    assert len(digest) == 64
+    assert all(char in "0123456789abcdef" for char in digest)
+
+    altered = replace(left, title="Autre mission")
+    assert canonical_run_request_digest(altered) != digest
+
+
 def test_generic_verifier_maps_contract_evidence_to_all_verdicts(tmp_path: Path):
     content = b"verified report"
     (tmp_path / "report.txt").write_bytes(content)
@@ -512,6 +721,95 @@ def test_browser_snapshot_is_reliable_read_evidence_not_a_business_effect_receip
         )
     finally:
         clear_browser_receipt(run.run_id)
+
+
+def test_verifier_rejects_symlink_workspace_traversal_and_linked_file(
+    tmp_path: Path,
+) -> None:
+    """Les preuves fichier restent confinées : pas de workspace/lien/traversée."""
+
+    content = b"preuve locale"
+    digest = hashlib.sha256(content).hexdigest()
+
+    real_workspace = tmp_path / "real"
+    real_workspace.mkdir()
+    (real_workspace / "report.txt").write_bytes(content)
+    linked_workspace = tmp_path / "linked-workspace"
+    linked_workspace.symlink_to(real_workspace, target_is_directory=True)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_bytes(content)
+    confined = tmp_path / "confined"
+    confined.mkdir()
+    (confined / "report.txt").write_bytes(content)
+    (confined / "escape.txt").symlink_to(outside / "secret.txt")
+
+    def _verifying(workspace: Path) -> AgenticRun:
+        run = replace(_run(), workspace=str(workspace))
+        for status in (
+            AgenticRunStatus.CLASSIFIED,
+            AgenticRunStatus.QUEUED,
+            AgenticRunStatus.PROVISIONING,
+            AgenticRunStatus.RUNNING,
+            AgenticRunStatus.VERIFYING,
+        ):
+            run = run.transition(status)
+        return run
+
+    run_sw = _verifying(linked_workspace)
+    assert (
+        verify_runtime_completion(
+            run=run_sw,
+            artifacts=(
+                Artifact(
+                    artifact_id="symlink-workspace",
+                    run_id=run_sw.run_id,
+                    type="changed_file",
+                    reference="report.txt",
+                    sha256=digest,
+                    size_bytes=len(content),
+                ),
+            ),
+        ).verdict
+        is VerificationVerdict.FAIL
+    )
+
+    run_trav = _verifying(confined)
+    assert (
+        verify_runtime_completion(
+            run=run_trav,
+            artifacts=(
+                Artifact(
+                    artifact_id="traversal",
+                    run_id=run_trav.run_id,
+                    type="changed_file",
+                    reference="../outside/secret.txt",
+                    sha256=digest,
+                    size_bytes=len(content),
+                ),
+            ),
+        ).verdict
+        is VerificationVerdict.FAIL
+    )
+
+    run_link = _verifying(confined)
+    assert (
+        verify_runtime_completion(
+            run=run_link,
+            artifacts=(
+                Artifact(
+                    artifact_id="linked-file",
+                    run_id=run_link.run_id,
+                    type="changed_file",
+                    reference="escape.txt",
+                    sha256=digest,
+                    size_bytes=len(content),
+                ),
+            ),
+        ).verdict
+        is VerificationVerdict.FAIL
+    )
 
 
 def test_budget_violation_survives_event_neutralisation() -> None:

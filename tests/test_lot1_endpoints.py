@@ -107,14 +107,20 @@ def test_jarvis_journal_generate_endpoint(tmp_db):
 
 
 def test_day_scores_top_endpoint(tmp_db):
-    from database import upsert_day_score
+    from datetime import timedelta
 
-    upsert_day_score("2026-07-10", exceptional_score=90, luck_score=40, factors={})
+    from database import upsert_day_score
+    from database.time_buckets import local_datetime
+
+    # get_top_days filtre sur une fenêtre glissante : dates figées sortent du
+    # cadre et vident silencieusement le classement (régression calendaire).
+    day = (local_datetime().date() - timedelta(days=2)).isoformat()
+    upsert_day_score(day, exceptional_score=90, luck_score=40, factors={})
     with _client() as client:
         authenticate(client)
         r = client.get("/api/day-scores?metric=exceptional_score&limit=5")
     assert r.status_code == 200
-    assert r.json()["days"][0]["date"] == "2026-07-10"
+    assert r.json()["days"][0]["date"] == day
 
 
 def test_day_scores_invalid_metric_400(tmp_db):

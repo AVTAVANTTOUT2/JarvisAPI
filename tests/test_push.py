@@ -269,3 +269,76 @@ def test_send_web_push_refuses_unapproved_destination_before_http(tmp_db):
     with patch("httpx.post") as mock_post:
         assert push.send_web_push(subscription, {"title": "Salut"}) == (False, 0)
     mock_post.assert_not_called()
+
+
+def _public_push_resolver(*addresses: str):
+    import socket
+
+    def resolve(host: str, port: int, *, type: int):
+        assert port == 443
+        assert type == socket.SOCK_STREAM
+        return [
+            (
+                socket.AF_INET6 if ":" in address else socket.AF_INET,
+                type,
+                6,
+                "",
+                (address, port),
+            )
+            for address in addresses
+        ]
+
+    return resolve
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://fcm.googleapis.com/fcm/send/abc",
+        "https://updates.push.services.mozilla.com/wpush/v2/token",
+        "https://web.push.apple.com/QABC",
+    ],
+)
+def test_validate_web_push_endpoint_accepts_configured_providers(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str
+):
+    """La frontière push ne doit plus être contournée uniquement par mock."""
+    import push
+
+    monkeypatch.setattr(
+        "config.WEB_PUSH_ALLOWED_HOSTS",
+        "fcm.googleapis.com,updates.push.services.mozilla.com,web.push.apple.com",
+    )
+    # validate_web_push_endpoint n'expose pas de resolver : on épingle getaddrinfo.
+    monkeypatch.setattr(
+        "core.outbound_security.socket.getaddrinfo",
+        _public_push_resolver("8.8.8.8"),
+    )
+    assert push.validate_web_push_endpoint(endpoint) == endpoint
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://fcm.googleapis.com/fcm/send/abc",
+        "https://user:pass@fcm.googleapis.com/fcm/send/abc",
+        "https://fcm.googleapis.com:8443/fcm/send/abc",
+        "https://evil.example/fcm/send/abc",
+    ],
+)
+def test_validate_web_push_endpoint_rejects_non_https_or_foreign_host(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str
+):
+    import push
+    from core.outbound_security import OutboundURLRejected
+
+    monkeypatch.setattr(
+        "config.WEB_PUSH_ALLOWED_HOSTS",
+        "fcm.googleapis.com,updates.push.services.mozilla.com,web.push.apple.com",
+    )
+    monkeypatch.setattr(
+        "core.outbound_security.socket.getaddrinfo",
+        _public_push_resolver("8.8.8.8"),
+    )
+    with pytest.raises(OutboundURLRejected):
+        push.validate_web_push_endpoint(endpoint)

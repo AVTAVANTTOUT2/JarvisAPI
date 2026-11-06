@@ -290,6 +290,79 @@ def test_complete_chapter_not_downgraded_when_llm_fails_on_rebuild(
     assert second["narrative"] == good_narrative
 
 
+def test_complete_chapter_not_downgraded_when_daily_budget_exhausted(
+    history_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Budget épuisé : pas d'appel LLM, le chapitre complete reste intact."""
+
+    import asyncio
+
+    from database import get_db
+    from scripts.person_history import build_chapter
+
+    good_narrative = "Janvier a été riche en échanges."
+    llm_calls: list[object] = []
+
+    async def _chat_ok(**_kwargs):
+        llm_calls.append(1)
+        return {
+            "content": json.dumps(
+                {
+                    "highlights": [],
+                    "narrative": good_narrative,
+                    "mood_arc": "stable",
+                }
+            ),
+            "tokens_in": 12,
+            "tokens_out": 30,
+            "cost": 0.0,
+            "model": "deepseek-v4-flash",
+        }
+
+    monkeypatch.setattr("llm.chat", _chat_ok)
+
+    with get_db() as conn:
+        person_id = _seed_ada_with_noise(conn)
+        handle_id = conn.execute(
+            "SELECT handle_id FROM imessage_messages WHERE apple_rowid = 101"
+        ).fetchone()[0]
+
+    first = asyncio.run(build_chapter(int(person_id), "2026-01"))
+    assert first["status"] == "complete"
+    assert first["narrative"] == good_narrative
+    assert llm_calls == [1]
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO imessage_messages(
+                apple_rowid, guid, handle_id, text, occurred_at_utc, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                102,
+                "guid-ada-102-budget",
+                handle_id,
+                "Ada confirme le vol",
+                "2026-01-16T10:00:00Z",
+                "2026-01-16T10:00:00Z",
+            ),
+        )
+
+    monkeypatch.setattr(
+        "scripts.person_history._daily_token_budget", lambda: 100
+    )
+    monkeypatch.setattr(
+        "scripts.person_history._tokens_used_today", lambda: 100
+    )
+
+    second = asyncio.run(build_chapter(int(person_id), "2026-01"))
+    assert second.get("deferred") is True
+    assert second["status"] == "complete"
+    assert second["narrative"] == good_narrative
+    assert llm_calls == [1]
+
+
 def test_history_query_uses_month_chapters_not_raw_imessage(history_db: Path) -> None:
     from database import get_db
     from database.person_history import upsert_chapter
@@ -683,6 +756,92 @@ def test_merge_people_preserves_conflicting_month_chapters(history_db: Path) -> 
     assert chapter["message_count"] == 15
     assert "Chapitre conservé." in chapter["narrative"]
     assert "Chapitre fusionné." in chapter["narrative"]
+
+
+def test_merge_people_adopts_drop_narrative_when_keep_is_empty(
+    history_db: Path,
+) -> None:
+    from database import get_db
+    from database.people import _merge_people_ids
+    from database.person_history import get_chapter
+
+    with get_db() as conn:
+        keep_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('KeepEmpty')"
+        ).lastrowid
+        drop_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('+33600000002')"
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-09', '2026-09-01T00:00:00Z', '2026-09-30T23:59:59Z',
+                      'partial', 4, 1, 3, '[]', '', '', 'keep-empty')
+            """,
+            (keep_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-09', '2026-09-01T00:00:00Z', '2026-09-30T23:59:59Z',
+                      'complete', 6, 2, 4, '[]', 'Seul récit restant.', '', 'drop-text')
+            """,
+            (drop_id,),
+        )
+        _merge_people_ids(conn, int(keep_id), int(drop_id))
+
+    chapter = get_chapter(int(keep_id), "2026-09")
+    assert chapter is not None
+    assert chapter["message_count"] == 10
+    assert chapter["narrative"] == "Seul récit restant."
+
+
+def test_merge_people_keeps_narrative_when_drop_is_empty(history_db: Path) -> None:
+    from database import get_db
+    from database.people import _merge_people_ids
+    from database.person_history import get_chapter
+
+    with get_db() as conn:
+        keep_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('KeepText')"
+        ).lastrowid
+        drop_id = conn.execute(
+            "INSERT INTO people(name) VALUES ('+33600000003')"
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-10', '2026-10-01T00:00:00Z', '2026-10-31T23:59:59Z',
+                      'complete', 8, 5, 3, '[]', 'Récit conserve.', '', 'keep-text')
+            """,
+            (keep_id,),
+        )
+        conn.execute(
+            """
+            INSERT INTO person_month_chapters (
+                person_id, year_month, period_start_utc, period_end_utc, status,
+                message_count, sent_count, recv_count, highlights_json, narrative,
+                mood_arc, content_hash
+            ) VALUES (?, '2026-10', '2026-10-01T00:00:00Z', '2026-10-31T23:59:59Z',
+                      'partial', 2, 0, 2, '[]', '', '', 'drop-empty')
+            """,
+            (drop_id,),
+        )
+        _merge_people_ids(conn, int(keep_id), int(drop_id))
+
+    chapter = get_chapter(int(keep_id), "2026-10")
+    assert chapter is not None
+    assert chapter["message_count"] == 10
+    assert chapter["narrative"] == "Récit conserve."
 
 
 def test_sync_contacts_merge_preserves_month_chapters(history_db: Path) -> None:

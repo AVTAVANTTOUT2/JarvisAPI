@@ -411,6 +411,29 @@ def test_redact_sensitive_mapping_nested():
     assert "sk-abcdefg123" not in str(out)
 
 
+def test_redact_persisted_mapping_secrets_counters_and_metadata_skip_pii():
+    """Persistance : secrets masqués, compteurs intacts, métadonnées hors NER PII."""
+    from jarvis.security.redaction import redact_persisted_mapping
+
+    secret = "sk-persistedMappingBoundary123456789"
+    email = "marie.martin@gmail.com"
+    out = redact_persisted_mapping(
+        {
+            "api_key": secret,
+            "tokens_in": 42,
+            "branch_name": f"fix/{email}-work",
+            "isolation_path": f"/tmp/worktrees/{email}",
+            "note": f"Contacter {email} avec {secret}",
+        }
+    )
+    assert out["api_key"] == "[REDACTED]"
+    assert out["tokens_in"] == 42
+    assert email in out["branch_name"]
+    assert email in out["isolation_path"]
+    assert secret not in out["note"]
+    assert email not in out["note"]
+
+
 # ── 5. Ollama guard chemin canonique ─────────────────────────
 
 

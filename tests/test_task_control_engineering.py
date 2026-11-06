@@ -16,7 +16,13 @@ import config
 import database
 from jarvis.event_bus import EventBus
 from jarvis.task_control.detection import TaskCandidateDetector
-from jarvis.task_control.engineering import ENGINEERING_DELIVERY_METADATA_KEY
+from jarvis.task_control.engineering import (
+    ENGINEERING_DELIVERY_METADATA_KEY,
+    bind_engineering_contract_to_plan,
+    build_engineering_delivery_contract,
+    ensure_engineering_contract_approved,
+    engineering_delivery_contract_from_metadata,
+)
 from jarvis.task_control.models import (
     PlanDecision,
     PlanStep,
@@ -390,3 +396,171 @@ async def test_interrupted_launch_resumes_same_run_and_finalizer_intent(
     assert len(agentic.starts) == 1
     assert agentic.starts[0]["run_id"] == interrupted.agentic_run_id
     assert len(list(records[0].parent.glob("*.json"))) == 1
+
+
+# --- Gardes pures du contrat (sans runtime / DB) ---------------------------------
+
+
+def _mini_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "contract-repo"
+    repo.mkdir()
+    tests = repo / "tests"
+    tests.mkdir()
+    (tests / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    return repo
+
+
+def test_build_engineering_delivery_contract_happy_path(tmp_path: Path) -> None:
+    repo = _mini_repo(tmp_path)
+    contract = build_engineering_delivery_contract(
+        repo_root=repo,
+        required_tests=("python3 -m pytest tests/test_ok.py -q",),
+        acceptance_criteria=("vert",),
+        commit_message="Corriger le défaut",
+        idempotency_key="pure-gate-happy",
+        runtime_id="opencode",
+        runtime_version="1.18.16",
+    )
+    assert contract.repo_root == repo.resolve()
+    assert contract.required_tests == (
+        ("python3", "-m", "pytest", "tests/test_ok.py", "-q"),
+    )
+    assert contract.acceptance_criteria == ("vert",)
+    assert contract.approval_marker.startswith("Contrat de livraison JARVIS sha256:")
+    assert len(contract.digest) == 64
+    assert contract.runtime_label == "opencode@1.18.16"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    (
+        ({"idempotency_key": "   "}, "idempotence"),
+        ({"runtime_id": "OpenCode"}, "runtime"),
+        ({"runtime_version": ""}, "runtime"),
+        ({"runtime_version": "bad\nversion"}, "runtime"),
+        ({"commit_message": "   "}, "commit"),
+        ({"required_tests": ()}, "validation"),
+    ),
+)
+def test_build_engineering_delivery_contract_refuses_bad_inputs(
+    tmp_path: Path, kwargs: dict[str, Any], match: str
+) -> None:
+    repo = _mini_repo(tmp_path)
+    base: dict[str, Any] = {
+        "repo_root": repo,
+        "required_tests": ("python3 -m pytest tests/test_ok.py -q",),
+        "commit_message": "ok",
+        "idempotency_key": "pure-gate-refuse",
+        "runtime_id": "opencode",
+        "runtime_version": "1.0.0",
+    }
+    base.update(kwargs)
+    with pytest.raises(ValueError, match=match):
+        build_engineering_delivery_contract(**base)
+
+
+def test_build_engineering_delivery_contract_refuses_symlink_root(
+    tmp_path: Path,
+) -> None:
+    repo = _mini_repo(tmp_path)
+    link = tmp_path / "sym-repo"
+    link.symlink_to(repo, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolique"):
+        build_engineering_delivery_contract(
+            repo_root=link,
+            required_tests=("python3 -m pytest tests/test_ok.py -q",),
+            commit_message="ok",
+            idempotency_key="symlink-root",
+            runtime_id="opencode",
+            runtime_version="1.0.0",
+        )
+
+
+def test_engineering_delivery_contract_from_metadata_round_trip(
+    tmp_path: Path,
+) -> None:
+    repo = _mini_repo(tmp_path)
+    built = build_engineering_delivery_contract(
+        repo_root=repo,
+        required_tests=("python3 -m pytest tests/test_ok.py -q",),
+        acceptance_criteria=("critère",),
+        commit_message="Message court",
+        idempotency_key="round-trip-meta",
+        runtime_id="opencode",
+        runtime_version="2.0.0",
+    )
+    assert engineering_delivery_contract_from_metadata({}) is None
+    restored = engineering_delivery_contract_from_metadata(
+        {ENGINEERING_DELIVERY_METADATA_KEY: built.to_metadata()}
+    )
+    assert restored is not None
+    assert restored.digest == built.digest
+    assert restored.job_id == built.job_id
+    assert restored.required_tests == built.required_tests
+
+
+def test_engineering_delivery_contract_from_metadata_refuses_tamper(
+    tmp_path: Path,
+) -> None:
+    repo = _mini_repo(tmp_path)
+    built = build_engineering_delivery_contract(
+        repo_root=repo,
+        required_tests=("python3 -m pytest tests/test_ok.py -q",),
+        commit_message="Message",
+        idempotency_key="tamper-meta",
+        runtime_id="opencode",
+        runtime_version="1.0.0",
+    )
+    meta = built.to_metadata()
+    meta["digest"] = "0" * 64
+    with pytest.raises(TaskExecutionRefused, match="contrat de livraison"):
+        engineering_delivery_contract_from_metadata(
+            {ENGINEERING_DELIVERY_METADATA_KEY: meta}
+        )
+
+    meta = built.to_metadata()
+    meta["extra_field"] = "nope"
+    with pytest.raises(TaskExecutionRefused, match="contrat de livraison"):
+        engineering_delivery_contract_from_metadata(
+            {ENGINEERING_DELIVERY_METADATA_KEY: meta}
+        )
+
+    meta = built.to_metadata()
+    meta["job_id"] = "deadbeef" * 4
+    with pytest.raises(TaskExecutionRefused, match="contrat de livraison"):
+        engineering_delivery_contract_from_metadata(
+            {ENGINEERING_DELIVERY_METADATA_KEY: meta}
+        )
+
+
+def test_ensure_engineering_contract_approved_requires_marker(
+    tmp_path: Path,
+) -> None:
+    repo = _mini_repo(tmp_path)
+    contract = build_engineering_delivery_contract(
+        repo_root=repo,
+        required_tests=("python3 -m pytest tests/test_ok.py -q",),
+        commit_message="Marker",
+        idempotency_key="approval-marker",
+        runtime_id="opencode",
+        runtime_version="1.0.0",
+    )
+    bare = TaskPlan(
+        plan_id=new_id("plan"),
+        task_id=new_id("task"),
+        version=1,
+        objective="corriger",
+        summary="sans marqueur",
+        steps=(PlanStep(index=1, title="éditer"),),
+        success_criteria=("tests verts",),
+    )
+    with pytest.raises(TaskExecutionRefused, match="pas couvert"):
+        ensure_engineering_contract_approved(bare, contract)
+
+    bound = bind_engineering_contract_to_plan(bare, contract)
+    ensure_engineering_contract_approved(bound, contract)
+    assert contract.approval_marker in bound.success_criteria
+    assert any(
+        step.title == "Valider et finaliser la livraison locale" for step in bound.steps
+    )
+    assert "Publication externe: interdite" in bound.success_criteria

@@ -202,3 +202,67 @@ def test_adapters_keep_opaque_references_and_bounds() -> None:
     )
     assert message.reference == "imessage:12"
     assert message.is_from_user is False
+
+
+# ── Pont connecteur → domaine (fail-soft) ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ingest_email_for_detection_is_noop_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from jarvis.task_control.ingest import ingest_email_for_detection
+
+    monkeypatch.setattr("config.TASK_DETECTION_ENABLED", False)
+    assert await ingest_email_for_detection({"gmail_id": "1"}) is None
+
+
+@pytest.mark.asyncio
+async def test_ingest_email_for_detection_swallows_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Une détection cassée ne doit jamais casser la boucle du watcher mail."""
+
+    from jarvis.task_control import detection as detection_module
+    from jarvis.task_control.ingest import ingest_email_for_detection
+
+    monkeypatch.setattr("config.TASK_DETECTION_ENABLED", True)
+    monkeypatch.setattr(
+        detection_module,
+        "detector_from_config",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("detector down")),
+    )
+
+    assert (
+        await ingest_email_for_detection(
+            {
+                "gmail_id": "boom",
+                "from": "alice@example.invalid",
+                "subject": "Rapport",
+                "body": "Peux-tu envoyer le rapport avant vendredi ?",
+            }
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_ingest_message_for_detection_swallows_exceptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from jarvis.task_control import detection as detection_module
+    from jarvis.task_control.ingest import ingest_message_for_detection
+
+    monkeypatch.setattr("config.TASK_DETECTION_ENABLED", True)
+    monkeypatch.setattr(
+        detection_module,
+        "detector_from_config",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("detector down")),
+    )
+
+    assert (
+        await ingest_message_for_detection(
+            {"rowid": 9, "text": "peux-tu rappeler demain ?", "is_from_me": False}
+        )
+        is None
+    )
